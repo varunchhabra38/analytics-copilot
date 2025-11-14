@@ -141,61 +141,61 @@ def main():
         st.info(f"**Session ID:** `{st.session_state.thread_id}`")
         st.caption("Each conversation has persistent memory across messages")
         
-        # Logging Information
-        st.subheader("📊 Logging")
-        st.info(f"**Log File:** `{log_file.name}`")
-        st.caption("All workflow steps are logged in detail. Check the console or log file for full execution trace.")
+        # # Logging Information
+        # st.subheader("📊 Logging")
+        # st.info(f"**Log File:** `{log_file.name}`")
+        # st.caption("All workflow steps are logged in detail. Check the console or log file for full execution trace.")
         
-        # Log level controls
-        current_level = logging.getLogger().level
-        level_name = logging.getLevelName(current_level)
-        st.write(f"**Log Level:** {level_name}")
+        # # Log level controls
+        # current_level = logging.getLogger().level
+        # level_name = logging.getLevelName(current_level)
+        # st.write(f"**Log Level:** {level_name}")
         
-        if st.button("🔍 View Log File Location", key="show_log_location"):
-            st.write(f"Full path: `{log_file}`")
+        # if st.button("🔍 View Log File Location", key="show_log_location"):
+        #     st.write(f"Full path: `{log_file}`")
         
-        st.divider()
+        # st.divider()
         
-        # Export if messages exist
-        if st.session_state.messages:
-            # Create a serializable version of messages for export
-            exportable_messages = []
-            for msg in st.session_state.messages:
-                export_msg = {
-                    "role": msg["role"],
-                    "content": msg["content"]
-                }
-                # Only include serializable metadata
-                if "metadata" in msg and msg["metadata"]:
-                    export_metadata = {}
-                    for key, value in msg["metadata"].items():
-                        # Skip DataFrames and other non-serializable objects
-                        if key == "execution_result":
-                            if value is not None:
-                                try:
-                                    import pandas as pd
-                                    if isinstance(value, pd.DataFrame):
-                                        export_metadata[key] = f"DataFrame with {len(value)} rows and {len(value.columns)} columns"
-                                    else:
-                                        export_metadata[key] = str(value)
-                                except:
-                                    export_metadata[key] = str(value)
-                        elif isinstance(value, (str, int, float, bool, type(None))):
-                            export_metadata[key] = value
-                        else:
-                            export_metadata[key] = str(value)
-                    if export_metadata:
-                        export_msg["metadata"] = export_metadata
-                exportable_messages.append(export_msg)
+        # # Export if messages exist
+        # if st.session_state.messages:
+        #     # Create a serializable version of messages for export
+        #     exportable_messages = []
+        #     for msg in st.session_state.messages:
+        #         export_msg = {
+        #             "role": msg["role"],
+        #             "content": msg["content"]
+        #         }
+        #         # Only include serializable metadata
+        #         if "metadata" in msg and msg["metadata"]:
+        #             export_metadata = {}
+        #             for key, value in msg["metadata"].items():
+        #                 # Skip DataFrames and other non-serializable objects
+        #                 if key == "execution_result":
+        #                     if value is not None:
+        #                         try:
+        #                             import pandas as pd
+        #                             if isinstance(value, pd.DataFrame):
+        #                                 export_metadata[key] = f"DataFrame with {len(value)} rows and {len(value.columns)} columns"
+        #                             else:
+        #                                 export_metadata[key] = str(value)
+        #                         except:
+        #                             export_metadata[key] = str(value)
+        #                 elif isinstance(value, (str, int, float, bool, type(None))):
+        #                     export_metadata[key] = value
+        #                 else:
+        #                     export_metadata[key] = str(value)
+        #             if export_metadata:
+        #                 export_msg["metadata"] = export_metadata
+        #         exportable_messages.append(export_msg)
             
-            conversation_json = json.dumps(exportable_messages, indent=2)
-            st.download_button(
-                label="📥 Export Chat",
-                data=conversation_json,
-                file_name="analytics_chat.json",
-                mime="application/json",
-                key="sidebar_export_chat"
-            )
+        #     conversation_json = json.dumps(exportable_messages, indent=2)
+        #     st.download_button(
+        #         label="📥 Export Chat",
+        #         data=conversation_json,
+        #         file_name="analytics_chat.json",
+        #         mime="application/json",
+        #         key="sidebar_export_chat"
+        #     )
     
     # Display existing messages
     for i, message in enumerate(st.session_state.messages):
@@ -211,25 +211,35 @@ def main():
                     with st.expander("Generated SQL"):
                         st.code(metadata["sql"], language="sql")
                 
+                # Check for operation_not_permitted flag
+                if metadata.get("operation_not_permitted"):
+                    st.warning("⚠️ Operation not permitted: The requested delete operation was blocked.")
+
                 # Show execution results
                 execution_result = metadata.get("execution_result")
+                logger.info(f"DEBUG: execution_result = {execution_result}")  # Debugging log
+
                 if execution_result is not None:
                     # Handle both formats: 'dataframe' from execution node and 'DataFrame' from UI processing
                     if isinstance(execution_result, dict) and execution_result.get("type") in ["DataFrame", "dataframe"]:
                         # Handle serialized DataFrame
-                        data = execution_result.get("data", [])
+                        data = execution_result.get("data", []) or []  # Ensure data is a list
+                        logger.info(f"DEBUG: data = {data}")  # Debugging log
+
                         if data:
                             import pandas as pd
                             df = pd.DataFrame(data)
                             # Use shape if available, otherwise count data
-                            shape = execution_result.get("shape", (len(df), len(df.columns) if len(df) > 0 else 0))
+                            shape = execution_result.get("shape") or (len(df), len(df.columns) if len(df) > 0 else 0)  # Ensure shape is valid
+                            logger.info(f"DEBUG: shape = {shape}")  # Debugging log
+
                             row_count = shape[0] if isinstance(shape, (tuple, list)) else len(df)
                             truncated = execution_result.get("truncated", False)
-                            
+
                             title = f"Query Results ({row_count} rows, {shape[1] if isinstance(shape, (tuple, list)) else len(df.columns)} columns)"
                             if truncated:
                                 title += " - Showing first 50"
-                                
+
                             with st.expander(title, expanded=True):
                                 # Show PII protection status if available
                                 if "pii_findings" in metadata:
@@ -237,7 +247,7 @@ def main():
                                     if pii_findings:
                                         pii_count = sum(len(findings) for findings in pii_findings.values())
                                         st.warning(f"🔒 **Privacy Protection:** {pii_count} PII instances detected and redacted")
-                                        
+
                                         with st.expander("PII Detection Details", expanded=False):
                                             for column, findings in pii_findings.items():
                                                 st.write(f"**Column '{column}':** {len(findings)} instances")
@@ -247,12 +257,9 @@ def main():
                                                     st.write(f"  • ... and {len(findings) - 3} more")
                                     else:
                                         st.success("🔒 **Privacy Protection:** No PII detected in results")
-                                
+
                                 st.dataframe(df, use_container_width=True)
-                                
-                                # Data preview is sufficient - no need for raw statistics
-                                # The agent summary provides business context instead
-                                
+
                                 if truncated:
                                     st.info(f"Showing first 50 rows of {row_count} total rows")
                         else:
@@ -340,12 +347,24 @@ def main():
                     
                     # Handle response
                     if result:
+                        # --- ADD THIS NEW BLOCK AT THE TOP ---
+                        if result.get("operation_not_permitted"):
+                            error_msg = result.get("error", "This operation is not permitted.")
+                            logger.error(f"🚫 Operation blocked by agent: {error_msg}")
+                            st.error(error_msg)
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": error_msg,
+                                "metadata": {"type": "error", "operation_not_permitted": True}
+                            })
+                        # --- END OF NEW BLOCK ---                       
                         # Check if clarification is needed
                         if result.get("clarification_needed", False):
                             clarification_msg = result.get("clarification_question", "Could you please clarify your request?")
                             logger.info(f"❓ Clarification needed: {clarification_msg}")
                             st.write(clarification_msg)
                             
+
                             # Add to messages
                             st.session_state.messages.append({
                                 "role": "assistant",
@@ -482,6 +501,7 @@ def main():
                                     logger.error(f"Error displaying execution result: {e}")
                                     st.write("**Result:** ", str(execution_result))
                             
+
                             # Show execution error if any
                             if result.get("execution_error"):
                                 st.error(f"Execution Error: {result['execution_error']}")

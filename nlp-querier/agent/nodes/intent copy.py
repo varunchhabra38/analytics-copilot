@@ -45,55 +45,54 @@ class IntentNode:
             ]
         }
     
-    def __call__(self, state: AgentState) -> AgentState:
-        """
-        Process user input to detect intent and potential ambiguities using LLM.
-        
-        Args:
-            state: Current agent state
-            
-        Returns:
-            Updated state with intent analysis results
-        """
-        try:
-            new_state = state.copy()
-            question = new_state.get('question', '')
-            history = new_state.get('history', [])
-                    # --- THIS IS THE NEW SECURITY CHECK ---
-            non_get_patterns = [
-                r'\b(update|insert|delete|create|drop|alter|add|remove|truncate|replace|merge)\b',
-                r'\b(modify|change|set|write|edit)\b'
-            ]
-            if any(re.search(pat, question.lower()) for pat in non_get_patterns):
-                logger.warning(f"IntentNode: Blocked non-GET intent detected in question: '{question}'")
-                new_state['operation_not_permitted'] = True
-                new_state['operation_feedback'] = "Sorry, I can only retrieve data. Operations like 'UPDATE', 'DELETE', or 'CREATE' are not permitted."
-                new_state['completed_nodes'] = new_state.get('completed_nodes', []) + ['intent']
-                return new_state
-        # --- END OF SECURITY CHECK ---
-            logger.info(f"Intent detection for question: {question}")
-            
-            # Use LLM for intelligent intent detection instead of regex patterns
-            ambiguities = self._llm_detect_ambiguities(question, history)
-            
-            if ambiguities:
-                new_state['clarification_needed'] = True
-                new_state['clarification_question'] = ambiguities['question']
-                logger.info(f"LLM detected ambiguities: {ambiguities['reason']}")
-            else:
-                logger.info("LLM determined query is clear, proceeding")
-                
-            new_state['completed_nodes'] = new_state['completed_nodes'] + ['intent']
-            return new_state
-            
-        except Exception as e:
-            logger.error(f"Intent detection failed: {e}")
-            # Fail open - proceed without clarification if intent detection fails
-            new_state = state.copy()
-            new_state['clarification_needed'] = False
-            new_state['completed_nodes'] = new_state['completed_nodes'] + ['intent']
-            return new_state
+def __call__(self, state: AgentState) -> AgentState:
+    """
+    Process user input to detect intent and potential ambiguities using LLM.
+    This version is more robust and ensures the non-GET check is final.
+    """
+    new_state = state.copy()
+    question = new_state.get('question', '')
+    history = new_state.get('history', [])
     
+    # --- STEP 1: Perform the critical security check first, outside of any try/except block ---
+    non_get_patterns = [
+        r'\b(update|insert|delete|create|drop|alter|add|remove|truncate|replace|merge)\b',
+        r'\b(modify|change|set|write|edit)\b'
+    ]
+    question_lower = question.lower()
+    
+    if any(re.search(pat, question_lower) for pat in non_get_patterns):
+        logger.warning(f"IntentNode: Blocked non-GET intent detected in question: '{question}'")
+        new_state['operation_not_permitted'] = True
+        new_state['operation_feedback'] = "Sorry, I can only retrieve data. Operations like 'UPDATE', 'DELETE', or 'CREATE' are not permitted."
+        new_state['completed_nodes'] = new_state.get('completed_nodes', []) + ['intent']
+        
+        # This return is final and cannot be undone by an exception handler.
+        logger.critical(f"INTENT NODE IS HALTING: Returning state -> {new_state}")
+        return new_state
+
+    # --- STEP 2: If the security check passes, proceed with ambiguity detection ---
+    try:
+        logger.info(f"Intent check passed. Now checking for ambiguity in question: {question}")
+        
+        ambiguities = self._llm_detect_ambiguities(question, history)
+        
+        if ambiguities:
+            new_state['clarification_needed'] = True
+            new_state['clarification_question'] = ambiguities['question']
+            logger.info(f"LLM detected ambiguities: {ambiguities['reason']}")
+        else:
+            new_state['clarification_needed'] = False
+            logger.info("LLM determined query is clear, proceeding")
+            
+    except Exception as e:
+        # This block now ONLY handles failures in ambiguity detection, not the security check.
+        logger.error(f"Ambiguity detection failed with error: {e}. Proceeding without clarification.")
+        new_state['clarification_needed'] = False # Fail open safely
+    
+    new_state['completed_nodes'] = new_state.get('completed_nodes', []) + ['intent']
+    logger.info(f"INTENT NODE IS PROCEEDING: Returning state -> {new_state}")
+    return new_state
     def _llm_detect_ambiguities(self, question: str, history: List[Dict[str, str]]) -> Dict[str, str] | None:
         """
         Use LLM (Vertex AI) to intelligently detect if a question is ambiguous.

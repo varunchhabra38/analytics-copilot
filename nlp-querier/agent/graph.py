@@ -231,7 +231,8 @@ def create_analytics_graph() -> StateGraph:
         decide_after_intent,
         {
             "clarification": "clarification",
-            "lookup_schema": "lookup_schema"
+            "lookup_schema": "lookup_schema",
+            "operation_not_permitted": END  # This new route tells the graph to stop.
         }
     )
     
@@ -292,19 +293,23 @@ def create_analytics_graph() -> StateGraph:
     return workflow
 
 
-def decide_after_intent(state: AgentState) -> Literal["clarification", "lookup_schema"]:
+# In agent/graph.py
+
+def decide_after_intent(state: AgentState) -> Literal["clarification", "lookup_schema", "operation_not_permitted"]:
     """
-    Decide whether to ask for clarification or proceed with schema lookup.
+    Decide whether to halt, ask for clarification, or proceed with schema lookup.
+    """
+    # First, check for the security block. This is the highest priority.
+    if state.get("operation_not_permitted", False):
+        logger.error(f"HALTING: Intent check blocked a non-GET operation.")
+        return "operation_not_permitted"
     
-    Args:
-        state: Current agent state
-        
-    Returns:
-        Next node to execute
-    """
-    if state.get("clarification_needed", False):
+    # If the operation is permitted, then check for ambiguity.
+    elif state.get("clarification_needed", False):
         logger.info("Intent detected ambiguity, proceeding to clarification")
         return "clarification"
+        
+    # If the operation is permitted and no clarification is needed, proceed.
     else:
         logger.info("Intent clear, proceeding to schema lookup")
         return "lookup_schema"
@@ -525,18 +530,27 @@ def run_agent_chat(question: str, history: List[Dict[str, str]], **kwargs) -> Di
             logger.info(f"  - Summary: {'✅' if result_state.get('summary') else '❌'}")
             logger.info(f"  - Errors: {'❌ ' + str(result_state.get('execution_error')) if result_state.get('execution_error') else '✅ None'}")
             
-            result = {
-                "sql": result_state.get("validated_sql"),
-                "generated_sql": result_state.get("validated_sql"),  # For UI compatibility
-                "summary": result_state.get("summary"),
-                "business_interpretation": result_state.get("business_interpretation"),  # ✅ Add business interpretation
-                "history": result_state.get("history", []),
-                "clarification_question": result_state.get("clarification_question"),
-                "clarification_needed": result_state.get("clarification_needed", False),
-                "execution_result": result_state.get("execution_result"),  # ✅ Add missing execution_result
-                "execution_error": result_state.get("execution_error"),
-                "completed_nodes": result_state.get("completed_nodes", [])
-            }
+            if result_state.get("operation_not_permitted"):
+                result = {
+                    "error": result_state.get("operation_feedback"),
+                    "operation_not_permitted": True, # Pass the flag to the UI
+                    "history": result_state.get("history", []),
+                    "completed_nodes": result_state.get("completed_nodes", [])
+                }
+            else:
+                # If not halted, build the normal success/error response.
+                result = {
+                    "sql": result_state.get("validated_sql"),
+                    "generated_sql": result_state.get("validated_sql"),
+                    "summary": result_state.get("summary"),
+                    "business_interpretation": result_state.get("business_interpretation"),
+                    "history": result_state.get("history", []),
+                    "clarification_question": result_state.get("clarification_question"),
+                    "clarification_needed": result_state.get("clarification_needed", False),
+                    "execution_result": result_state.get("execution_result"),
+                    "execution_error": result_state.get("execution_error"),
+                    "completed_nodes": result_state.get("completed_nodes", [])
+                }
             
             logger.info("="*80)
             logger.info("🎉 ANALYTICS AGENT WORKFLOW COMPLETED SUCCESSFULLY")

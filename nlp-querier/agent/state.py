@@ -49,3 +49,6 @@ class AgentState(TypedDict):
     # Node tracking
     current_node: Optional[str]
     completed_nodes: List[str]
+    
+    operation_not_permitted: bool
+    operation_feedback: Optional[str]
