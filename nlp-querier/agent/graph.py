@@ -557,7 +557,7 @@ def run_agent_chat(question: str, history: List[Dict[str, str]], **kwargs) -> Di
             logger.info("="*80)
             
             # Generate and log the execution flow diagram
-            log_execution_flow_diagram(executed_nodes, question, step_count)
+            #log_execution_flow_diagram(executed_nodes, question, step_count)
             
             return result
         else:

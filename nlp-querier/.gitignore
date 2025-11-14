@@ -29,7 +29,8 @@ Thumbs.db
 *.swo
 
 # Output directories
-output/
+output/logs
+output/diagrams
 logs/
 
 # Environment files
