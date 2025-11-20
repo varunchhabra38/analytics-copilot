@@ -107,6 +107,9 @@ def initialize_session_state():
     
     if "clarification_question" not in st.session_state:
         st.session_state.clarification_question = None
+# caching
+    if "query_cache" not in st.session_state:
+        st.session_state.query_cache = {}
 
 
 def main():
@@ -141,62 +144,6 @@ def main():
         st.info(f"**Session ID:** `{st.session_state.thread_id}`")
         st.caption("Each conversation has persistent memory across messages")
         
-        # # Logging Information
-        # st.subheader("📊 Logging")
-        # st.info(f"**Log File:** `{log_file.name}`")
-        # st.caption("All workflow steps are logged in detail. Check the console or log file for full execution trace.")
-        
-        # # Log level controls
-        # current_level = logging.getLogger().level
-        # level_name = logging.getLevelName(current_level)
-        # st.write(f"**Log Level:** {level_name}")
-        
-        # if st.button("🔍 View Log File Location", key="show_log_location"):
-        #     st.write(f"Full path: `{log_file}`")
-        
-        # st.divider()
-        
-        # # Export if messages exist
-        # if st.session_state.messages:
-        #     # Create a serializable version of messages for export
-        #     exportable_messages = []
-        #     for msg in st.session_state.messages:
-        #         export_msg = {
-        #             "role": msg["role"],
-        #             "content": msg["content"]
-        #         }
-        #         # Only include serializable metadata
-        #         if "metadata" in msg and msg["metadata"]:
-        #             export_metadata = {}
-        #             for key, value in msg["metadata"].items():
-        #                 # Skip DataFrames and other non-serializable objects
-        #                 if key == "execution_result":
-        #                     if value is not None:
-        #                         try:
-        #                             import pandas as pd
-        #                             if isinstance(value, pd.DataFrame):
-        #                                 export_metadata[key] = f"DataFrame with {len(value)} rows and {len(value.columns)} columns"
-        #                             else:
-        #                                 export_metadata[key] = str(value)
-        #                         except:
-        #                             export_metadata[key] = str(value)
-        #                 elif isinstance(value, (str, int, float, bool, type(None))):
-        #                     export_metadata[key] = value
-        #                 else:
-        #                     export_metadata[key] = str(value)
-        #             if export_metadata:
-        #                 export_msg["metadata"] = export_metadata
-        #         exportable_messages.append(export_msg)
-            
-        #     conversation_json = json.dumps(exportable_messages, indent=2)
-        #     st.download_button(
-        #         label="📥 Export Chat",
-        #         data=conversation_json,
-        #         file_name="analytics_chat.json",
-        #         mime="application/json",
-        #         key="sidebar_export_chat"
-        #     )
-    
     # Display existing messages
     for i, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
@@ -227,7 +174,6 @@ def main():
                         logger.info(f"DEBUG: data = {data}")  # Debugging log
 
                         if data:
-                            import pandas as pd
                             df = pd.DataFrame(data)
                             # Use shape if available, otherwise count data
                             shape = execution_result.get("shape") or (len(df), len(df.columns) if len(df) > 0 else 0)  # Ensure shape is valid
@@ -276,11 +222,12 @@ def main():
                     st.error(f"Execution Error: {metadata['execution_error']}")
                 
                 # Show SQL explanation in collapsible section
-                if metadata.get("summary"):
-                    with st.expander("Query Explanation"):
-                        st.markdown(metadata["summary"])
-                else:
-                    st.warning("⚠️ No query explanation available in metadata")
+                # skipping summarization
+                # if metadata.get("summary"):
+                #     with st.expander("Query Explanation"):
+                #         st.markdown(metadata["summary"])
+                # else:
+                #     st.warning("⚠️ No query explanation available in metadata")
                 
                 # Show business interpretation in collapsible section
                 if metadata.get("business_interpretation"):
@@ -326,213 +273,93 @@ def main():
             with st.spinner("Processing..."):
                 logger.info("🔄 Starting agent processing...")
                 try:
-                    if st.session_state.awaiting_clarification:
-                        logger.info("📝 Processing clarification response")
-                        # Use full LangGraph with memory persistence
-                        result = run_agent_chat(
-                            user_input, 
-                            st.session_state.conversation_history,
-                            thread_id=st.session_state.thread_id
-                        )
+                    # --- CACHING LOGIC ---
+                    if not st.session_state.awaiting_clarification and user_input in st.session_state.query_cache:
+                        logger.info("✅ Cache hit! Returning cached result.")
+                        st.info("⚡️ Returning a cached response for this question.")
+                        result = st.session_state.query_cache[user_input]
                     else:
-                        logger.info("🆕 Starting new conversation")
-                        # Use full LangGraph with memory persistence
+                        logger.info("❌ Cache miss. Running full agent workflow.")
                         result = run_agent_chat(
                             user_input, 
                             st.session_state.conversation_history,
                             thread_id=st.session_state.thread_id
                         )
-                    
+                        if result and not result.get("error") and not result.get("operation_not_permitted") and not result.get("clarification_needed"):
+                            logger.info("✅ Caching successful result for future use.")
+                            st.session_state.query_cache[user_input] = result
+                    # --- END OF CACHING LOGIC ---
+
                     logger.info("📊 Agent processing completed")
                     
-                    # Handle response
                     if result:
-                        # --- ADD THIS NEW BLOCK AT THE TOP ---
                         if result.get("operation_not_permitted"):
                             error_msg = result.get("error", "This operation is not permitted.")
-                            logger.error(f"🚫 Operation blocked by agent: {error_msg}")
                             st.error(error_msg)
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": error_msg,
-                                "metadata": {"type": "error", "operation_not_permitted": True}
-                            })
-                        # --- END OF NEW BLOCK ---                       
-                        # Check if clarification is needed
-                        if result.get("clarification_needed", False):
+                            st.session_state.messages.append({"role": "assistant", "content": error_msg, "metadata": {"type": "error", "operation_not_permitted": True}})
+                        
+                        elif result.get("clarification_needed", False):
                             clarification_msg = result.get("clarification_question", "Could you please clarify your request?")
-                            logger.info(f"❓ Clarification needed: {clarification_msg}")
                             st.write(clarification_msg)
-                            
-
-                            # Add to messages
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": clarification_msg,
-                                "metadata": {"type": "clarification"}
-                            })
-                            
+                            st.session_state.messages.append({"role": "assistant", "content": clarification_msg, "metadata": {"type": "clarification"}})
                             st.session_state.awaiting_clarification = True
                             st.session_state.clarification_question = clarification_msg
                             
                         else:
-                            # Regular response
-                            summary = result.get("summary", "I've processed your request.")
-                            logger.info(f"✅ Successful response generated")
-                            logger.info(f"  - Summary length: {len(summary)} characters")
-                            logger.info(f"  - SQL generated: {'✅' if result.get('sql') else '❌'}")
-                            logger.info(f"  - Execution result: {'✅' if result.get('execution_result') is not None else '❌'}")
+                            # Regular successful response
+                            st.success("✅ Query completed successfully!")
                             
-                            # Display a brief acknowledgment instead of the full summary
-                            # The detailed explanation will be in the collapsible section
-                            st.success("✅ Query completed successfully! Check the Query Explanation section below for details.")
-                            
-                            # Add to messages (with DataFrame handling for session state)
+                            # Prepare serializable result for session state
                             execution_result = result.get("execution_result")
                             serializable_result = None
-                            if execution_result is not None:
-                                try:
-                                    # Check if it's already serialized from our execution node
-                                    if isinstance(execution_result, dict) and execution_result.get('type') == 'dataframe':
-                                        # It's already in the format we want, just rename the type for consistency
-                                        serializable_result = execution_result.copy()
-                                        serializable_result['type'] = 'DataFrame'  # Keep UI consistent
-                                    else:
-                                        # Handle other formats (fallback)
-                                        import pandas as pd
-                                        if isinstance(execution_result, pd.DataFrame) and not execution_result.empty:
-                                            # Store DataFrame info instead of the full DataFrame for session state
-                                            serializable_result = {
-                                                "type": "DataFrame",
-                                                "rows": len(execution_result),
-                                                "columns": list(execution_result.columns),
-                                                "data": execution_result.to_dict('records') if len(execution_result) <= 50 else execution_result.head(50).to_dict('records'),
-                                                "truncated": len(execution_result) > 50
-                                            }
-                                        elif isinstance(execution_result, pd.DataFrame):
-                                            # Handle empty DataFrame
-                                            serializable_result = {
-                                                "type": "DataFrame",
-                                                "rows": 0,
-                                                "columns": list(execution_result.columns),
-                                                "data": [],
-                                                "truncated": False
-                                            }
-                                        else:
-                                            serializable_result = execution_result if execution_result is not None else {"type": "empty", "data": []}
-                                except:
-                                    serializable_result = str(execution_result)
+                            if isinstance(execution_result, dict) and execution_result.get('type') == 'dataframe':
+                                serializable_result = execution_result
                             
                             message_data = {
                                 "role": "assistant",
-                                "content": "✅ Query completed successfully! Check the Query Explanation section below for details.",
+                                "content": "Query completed. See details below.",
                                 "metadata": {
                                     "sql": result.get("sql"),
                                     "execution_result": serializable_result,
                                     "execution_error": result.get("execution_error"),
-                                    "visualization_path": result.get("visualization_path"),
-                                    "summary": summary,
                                     "business_interpretation": result.get("business_interpretation")
                                 }
                             }
                             st.session_state.messages.append(message_data)
                             
-                            # Show SQL if available
+                            # Display results immediately
                             if result.get("sql"):
                                 with st.expander("Generated SQL"):
                                     st.code(result["sql"], language="sql")
                             
-                            # Show Query Explanation immediately
-                            if result.get("summary"):
-                                with st.expander("Query Explanation", expanded=False):
-                                    st.markdown(result["summary"])
-                            
-                            # Show Business Insights immediately if available
                             if result.get("business_interpretation"):
-                                with st.expander("Business Insights", expanded=False):
+                                with st.expander("Business Insights", expanded=True):
                                     st.markdown(result["business_interpretation"])
-                                    st.caption("LLM-powered business analysis of query results")
-                            else:
-                                st.write(f"🔍 **Business Insights value**: {repr(result.get('business_interpretation'))}")
                             
-                            # Show execution results if available (for live display)
-                            execution_result = result.get("execution_result")
-                            if execution_result is not None:
-                                try:
-                                    # Handle serialized DataFrame from execution node
-                                    if isinstance(execution_result, dict) and execution_result.get('type') == 'dataframe':
-                                        data = execution_result.get('data', [])
-                                        shape = execution_result.get('shape', (len(data) if data else 0, 0))
-                                        
-                                        if data:
-                                            import pandas as pd
-                                            df = pd.DataFrame(data)
-                                            
-                                            with st.expander(f"Query Results ({shape[0]} rows, {shape[1]} columns)", expanded=True):
-                                                st.dataframe(df, use_container_width=True)
-                                                
-                                                # Data preview is sufficient - agent summary provides business context
-                                        else:
-                                            st.info("**Result:** Query executed successfully but returned no data")
-                                            st.write("**Possible reasons:**")
-                                            st.write("- The filter criteria don't match any data")
-                                            st.write("- Try using different region names (e.g., 'North America' instead of 'USA')")
-                                    
-                                    # Handle direct pandas DataFrame (fallback)
-                                    elif hasattr(execution_result, 'empty'):  # pandas DataFrame
-                                        import pandas as pd
-                                        if not execution_result.empty:
-                                            with st.expander(f"Query Results ({len(execution_result)} rows)", expanded=True):
-                                                st.dataframe(execution_result, use_container_width=True)
-                                                
-                                                # Data preview is sufficient - agent summary provides business context
-                                        else:
-                                            st.info("**Result:** Query executed successfully but returned no data")
-                                            st.write("**Possible reasons:**")
-                                            st.write("• The filter criteria don't match any data")
-                                            st.write("• The date range may be outside available data")
-                                            st.write("• Try using different filter values or check table contents")
-                                    
-                                    # Handle other result types
-                                    else:
-                                        st.write("**Result:** ", str(execution_result))
-                                        
-                                except Exception as e:
-                                    logger.error(f"Error displaying execution result: {e}")
-                                    st.write("**Result:** ", str(execution_result))
-                            
+                            if serializable_result and serializable_result.get("data"):
+                                df = pd.DataFrame(serializable_result["data"])
+                                shape = serializable_result.get("shape", (len(df), len(df.columns)))
+                                with st.expander(f"Query Results ({shape[0]} rows, {shape[1]} columns)", expanded=True):
+                                    st.dataframe(df, use_container_width=True)
+                            elif result.get("execution_result") is not None:
+                                st.info("Query executed successfully but returned no data.")
 
-                            # Show execution error if any
                             if result.get("execution_error"):
                                 st.error(f"Execution Error: {result['execution_error']}")
                             
-                            # Reset clarification state
                             st.session_state.awaiting_clarification = False
                             st.session_state.clarification_question = None
                     
                     else:
-                        error_msg = "Sorry, I couldn't process your request."
-                        logger.error(f"❌ Agent returned empty result")
+                        error_msg = "Sorry, I couldn't process your request. The agent returned an empty result."
                         st.error(error_msg)
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": error_msg,
-                            "metadata": {"type": "error"}
-                        })
+                        st.session_state.messages.append({"role": "assistant", "content": error_msg, "metadata": {"type": "error"}})
                 
                 except Exception as e:
-                    error_msg = f"An error occurred: {str(e)}"
-                    logger.error("❌ STREAMLIT APPLICATION ERROR")
-                    logger.error(f"  - Error Type: {type(e).__name__}")
-                    logger.error(f"  - Error Message: {e}")
-                    logger.error(f"  - User Input: {user_input}")
-                    
+                    error_msg = f"An unexpected application error occurred: {str(e)}"
+                    logger.error(f"❌ STREAMLIT APPLICATION ERROR: {e}", exc_info=True)
                     st.error(error_msg)
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": error_msg,
-                        "metadata": {"type": "error", "exception": str(e)}
-                    })
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg, "metadata": {"type": "error", "exception": str(e)}})
         
         # Update conversation history with detailed context
         logger.info(f"📝 Updating conversation history (current length: {len(st.session_state.conversation_history)})")

@@ -8,6 +8,9 @@ from typing import Dict, Any, List
 import logging
 import re
 from agent.state import AgentState
+import json
+from agent.tools.sql_gen_tool import create_sql_gen_tool
+from config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +62,6 @@ class IntentNode:
             new_state = state.copy()
             question = new_state.get('question', '')
             history = new_state.get('history', [])
-                    # --- THIS IS THE NEW SECURITY CHECK ---
             non_get_patterns = [
                 r'\b(update|insert|delete|create|drop|alter|add|remove|truncate|replace|merge)\b',
                 r'\b(modify|change|set|write|edit)\b'
@@ -70,7 +72,6 @@ class IntentNode:
                 new_state['operation_feedback'] = "Sorry, I can only retrieve data. Operations like 'UPDATE', 'DELETE', or 'CREATE' are not permitted."
                 new_state['completed_nodes'] = new_state.get('completed_nodes', []) + ['intent']
                 return new_state
-        # --- END OF SECURITY CHECK ---
             logger.info(f"Intent detection for question: {question}")
             
             # Use LLM for intelligent intent detection instead of regex patterns
@@ -106,8 +107,6 @@ class IntentNode:
             Dictionary with clarification question if ambiguous, None if clear
         """
         try:
-            from agent.tools.sql_gen_tool import create_sql_gen_tool
-            from config import get_config
             
             config = get_config()
             
@@ -176,7 +175,7 @@ Respond with JSON:
             result_text = response.text.strip()
             
             # Parse JSON response
-            import json
+            
             if '{' in result_text and '}' in result_text:
                 start_idx = result_text.find('{')
                 end_idx = result_text.rfind('}') + 1

@@ -185,11 +185,72 @@ class ResultsInterpreterTool:
             
         return result_text
     
+#     def _create_interpretation_prompt(self, question: str, sql_query: str, results_text: str, context: str = None) -> str:
+#         """Create a more robust prompt for business interpretation that handles redaction."""
+        
+#         prompt = f"""You are a senior business analyst specializing in financial crime and fraud prevention. 
+# Your task is to analyze the provided SQL query results and deliver actionable business insights in a structured executive summary format.
+
+# **IMPORTANT CONTEXT: DATA PRIVACY & REDACTION**
+# - The query results you are seeing have been intentionally redacted for security and privacy.
+# - You will see placeholders like `[XXX_REDACTED]`. This is NOT a data quality issue.
+# - **Your primary directive is to IGNORE the redacted fields completely.**
+# - **DO NOT mention the redaction or data quality in your analysis.**
+# - Base your entire analysis ONLY on the visible, non-redacted data (e.g., counts, dates, risk levels, channels, amounts).
+
+# **CRITICAL REQUIREMENTS:**
+# 1.  **Focus ONLY on the actual, visible data** - do not mention redaction.
+# 2.  Return your response in the specified JSON format.
+# 3.  Provide detailed, actionable analysis using specific numbers from the visible data.
+# 4.  Identify trends, anomalies, and patterns from the non-sensitive metrics.
+
+# **QUERY CONTEXT:**
+# - User's Business Question: "{question}"
+# - Executed SQL Query: "{sql_query}"
+
+# **ACTUAL QUERY RESULTS (with intentional redaction):**
+# {results_text}
+
+# **REQUIRED JSON OUTPUT FORMAT:**
+# {{
+#     "executive_summary": "A 2-3 sentence summary of the main findings based on the visible data.",
+#     "key_findings": [
+#         {{
+#             "finding_title": "A clear title for the finding (e.g., 'Spike in High-Risk Alerts in Q4')",
+#             "description": "A detailed explanation using specific, non-redacted data points from the results (e.g., 'The number of high-risk alerts increased from 50 in Q3 to 85 in Q4, a 70% increase.')",
+#             "business_impact": "Why this finding matters for fraud prevention, operational efficiency, or risk management."
+#         }}
+#     ],
+#     "notable_patterns": [
+#         "Identify a specific, measurable pattern from the visible data.",
+#         "Highlight another significant trend using real data points."
+#     ],
+#     "recommendations": [
+#         {{
+#             "action": "A specific, recommended next step (e.g., 'Investigate the root cause of the Q4 high-risk alert spike.')",
+#             "priority": "High/Medium/Low",
+#             "rationale": "Why this action is necessary based on the data-driven findings."
+#         }}
+#     ]
+# }}
+
+# **ANALYSIS INSTRUCTIONS:**
+# - Write in the style of a professional, executive-level briefing.
+# - Use specific numbers, percentages, and trends from the actual, visible results.
+# - Your entire analysis must be derived from the non-sensitive data provided.
+# - Generate the complete JSON object and nothing else. Ensure it is valid.
+
+# Generate your comprehensive JSON analysis based *only* on the visible query results:"""
+
+#         return prompt
+
+
+
     def _create_interpretation_prompt(self, question: str, sql_query: str, results_text: str, context: str = None) -> str:
         """Create a more robust prompt for business interpretation that handles redaction."""
         
         prompt = f"""You are a senior business analyst specializing in financial crime and fraud prevention. 
-Your task is to analyze the provided SQL query results and deliver actionable business insights in a structured executive summary format.
+Your task is to analyze the provided SQL query results  in a structured executive summary format.
 
 **IMPORTANT CONTEXT: DATA PRIVACY & REDACTION**
 - The query results you are seeing have been intentionally redacted for security and privacy.
@@ -201,7 +262,7 @@ Your task is to analyze the provided SQL query results and deliver actionable bu
 **CRITICAL REQUIREMENTS:**
 1.  **Focus ONLY on the actual, visible data** - do not mention redaction.
 2.  Return your response in the specified JSON format.
-3.  Provide detailed, actionable analysis using specific numbers from the visible data.
+3.  Provide concise, actionable analysis using specific numbers from the visible data.
 4.  Identify trends, anomalies, and patterns from the non-sensitive metrics.
 
 **QUERY CONTEXT:**
@@ -220,17 +281,6 @@ Your task is to analyze the provided SQL query results and deliver actionable bu
             "description": "A detailed explanation using specific, non-redacted data points from the results (e.g., 'The number of high-risk alerts increased from 50 in Q3 to 85 in Q4, a 70% increase.')",
             "business_impact": "Why this finding matters for fraud prevention, operational efficiency, or risk management."
         }}
-    ],
-    "notable_patterns": [
-        "Identify a specific, measurable pattern from the visible data.",
-        "Highlight another significant trend using real data points."
-    ],
-    "recommendations": [
-        {{
-            "action": "A specific, recommended next step (e.g., 'Investigate the root cause of the Q4 high-risk alert spike.')",
-            "priority": "High/Medium/Low",
-            "rationale": "Why this action is necessary based on the data-driven findings."
-        }}
     ]
 }}
 
@@ -240,9 +290,10 @@ Your task is to analyze the provided SQL query results and deliver actionable bu
 - Your entire analysis must be derived from the non-sensitive data provided.
 - Generate the complete JSON object and nothing else. Ensure it is valid.
 
-Generate your comprehensive JSON analysis based *only* on the visible query results:"""
+Generate your concise JSON analysis based *only* on the visible query results:"""
 
         return prompt
+
     
     def _format_json_interpretation(self, json_data: dict) -> str:
         """Format JSON interpretation into readable business insights."""
@@ -299,7 +350,7 @@ Generate your comprehensive JSON analysis based *only* on the visible query resu
             sql_tool = create_sql_gen_tool(
                 "vertex_ai",
                 project_id=config_data["ai"]["project_id"],
-                model_name=config_data["ai"]["model_name"],
+                model_name='gemini-2.5-flash',#config_data["ai"]["model_name"],#'gemini-2.5-flash'
                 temperature=0.7  # Higher temperature for more creative business insights
             )
             
@@ -307,7 +358,7 @@ Generate your comprehensive JSON analysis based *only* on the visible query resu
             response = sql_tool.model.generate_content(
                 prompt,
                 generation_config={
-                    "temperature": 0.7,
+                    "temperature": 0.,
                     "max_output_tokens": 4000,  # Increased for complete responses
                     "top_k": 40,
                     "top_p": 0.95

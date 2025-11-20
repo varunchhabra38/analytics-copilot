@@ -264,16 +264,24 @@ def create_analytics_graph() -> StateGraph:
     )
     
     # Execution can succeed, fail, or need error fixing (removed visualize)
+    # workflow.add_conditional_edges(
+    #     "execute_sql",
+    #     decide_after_execution,
+    #     {
+    #         "summarize": "summarize",
+    #         "fix_error": "fix_sql_error",
+    #         "error": END
+    #     }
+    # )
     workflow.add_conditional_edges(
         "execute_sql",
         decide_after_execution,
         {
-            "summarize": "summarize",
+            "summarize": "interpret_results", 
             "fix_error": "fix_sql_error",
             "error": END
         }
     )
-    
     # Error fixing goes back to validation
     workflow.add_conditional_edges(
         "fix_sql_error",
@@ -285,7 +293,7 @@ def create_analytics_graph() -> StateGraph:
     )
     
     # Workflow continues to business interpretation after summarization
-    workflow.add_edge("summarize", "interpret_results")
+    #workflow.add_edge("summarize", "interpret_results") skipping summarization
     
     # Business interpretation ends the workflow
     workflow.add_edge("interpret_results", END)
@@ -468,7 +476,7 @@ def run_agent_chat(question: str, history: List[Dict[str, str]], **kwargs) -> Di
         thread_id = kwargs.get("thread_id", "default")
         config = {
             "configurable": {"thread_id": thread_id},
-            "recursion_limit": kwargs.get("recursion_limit", 50)  # Increase recursion limit
+            "recursion_limit": kwargs.get("recursion_limit", 50)  
         }
         
         logger.info(f"🧵 Starting workflow execution (thread_id: {thread_id})")

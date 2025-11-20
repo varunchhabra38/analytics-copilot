@@ -10,6 +10,8 @@ import logging
 import re
 from datetime import datetime, timedelta
 from abc import ABC, abstractmethod
+import vertexai
+from vertexai.generative_models import GenerativeModel
 
 logger = logging.getLogger(__name__)
 
@@ -813,8 +815,7 @@ class VertexAISQLGenTool(SQLGenTool):
     def __init__(self, project_id: str, model_name: str = "gemini-2.5-pro", temperature: float = 0.1):
         """Initialize Vertex AI SQL generation tool."""
         try:
-            import vertexai
-            from vertexai.generative_models import GenerativeModel
+
             
             self.project_id = project_id
             self.model_name = model_name
